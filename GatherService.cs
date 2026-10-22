@@ -1,5 +1,4 @@
 using System.Linq;
-using BepInEx.Logging;
 using Virtys.Common.Shared.Algorithms;
 using Virtys.Nebula.Client.ViewModel.Domain;
 
@@ -7,7 +6,7 @@ namespace MistLegacyBot
 {
     internal static class GatherService
     {
-        public static bool TryGatherNearest(ManualLogSource log)
+        public static bool TryGatherNearest(BotLogger log)
         {
             var player = PlayerVM.Current;
             if (player == null)
