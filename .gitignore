@@ -1,0 +1,11 @@
+bin/
+obj/
+_temp/
+
+# Game / Unity reference assemblies (copy locally from Mist Legacy_Data/Managed)
+libs/
+
+# IDE
+.vs/
+*.user
+*.suo
