@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Virtys.Common.Shared.Algorithms;
@@ -91,18 +92,125 @@ namespace MistLegacyBot
             log.LogInfo(
                 $"Stats: узлов {snap.Total}, видимых {snap.Visible}, можно собрать {snap.CanGather}, туман {snap.Unknown}, сумка {snap.BagFree}/{snap.BagCapacity}.");
 
-            if (snap.Types.Count == 0)
+            var lines = BuildDetailLines();
+            if (lines.Count == 0)
             {
-                log.LogWarning("Stats: список ресурсов пуст.");
+                log.LogWarning("Stats: нет каталога ресурсов (WorldVM / Player.Resources).");
                 return;
             }
 
-            foreach (var t in snap.Types)
+            log.LogInfo($"Stats: {lines.Count} записей (имя | тир | регион | навык | откат).");
+            foreach (var line in lines)
+                log.LogInfo("  " + line);
+        }
+
+        private static List<string> BuildDetailLines()
+        {
+            var player = PlayerVM.Current;
+            var liveById = new Dictionary<Guid, ItemResourceVM>();
+            if (player != null && player.Resources != null)
             {
-                var dist = t.NearestDistance.HasValue ? t.NearestDistance.Value.ToString("F1") : "-";
-                log.LogInfo(
-                    $"  {t.Name}: узлов {t.NodeCount}, вид {t.VisibleCount}, gather {t.CanGatherCount}, qty {t.QuantitySum}, coffer {t.CofferSum}, ближ {dist}");
+                foreach (var item in player.Resources)
+                {
+                    if (item == null || item.RegionResource == null)
+                        continue;
+                    liveById[item.RegionResource.ID] = item;
+                }
             }
+
+            var lines = new List<string>();
+            var world = WorldVM.Current;
+            if (world != null && world.Regions != null)
+            {
+                foreach (var region in world.Regions)
+                {
+                    if (region == null || region.Resources == null)
+                        continue;
+                    foreach (var node in region.Resources)
+                    {
+                        if (node == null)
+                            continue;
+                        ItemResourceVM live;
+                        liveById.TryGetValue(node.ID, out live);
+                        lines.Add(FormatDetail(node.ItemBase, region.Name, node, live));
+                    }
+                }
+            }
+
+            if (lines.Count > 0)
+                return lines;
+
+            if (player == null || player.Resources == null)
+                return lines;
+
+            foreach (var item in player.Resources)
+            {
+                if (item == null)
+                    continue;
+                var regionName = item.RegionResource != null && item.RegionResource.Region != null
+                    ? item.RegionResource.Region.Name
+                    : "?";
+                lines.Add(FormatDetail(item.ItemBase, regionName, item.RegionResource, item));
+            }
+
+            return lines;
+        }
+
+        private static string FormatDetail(
+            ItemBaseVM itemBase,
+            string regionName,
+            RegionResourceVM template,
+            ItemResourceVM live)
+        {
+            var name = itemBase != null ? itemBase.Name : "?";
+            var tier = FormatTier(itemBase);
+            var skill = FormatSkill(itemBase);
+            var cooldown = FormatCooldown(template, live);
+            var region = string.IsNullOrEmpty(regionName) ? "?" : regionName;
+            var qty = live != null ? live.Quantity.ToString() : "-";
+            var vis = live == null ? "нет в live" : (live.Visible && live.OnMap ? "вид" : "скрыт");
+            return $"{name} | {tier} | {region} | {skill} | qty {qty} | {cooldown} | {vis}";
+        }
+
+        private static string FormatTier(ItemBaseVM itemBase)
+        {
+            if (itemBase == null)
+                return "?";
+            return $"{itemBase.Rarity} L{itemBase.Level}";
+        }
+
+        private static string FormatSkill(ItemBaseVM itemBase)
+        {
+            if (itemBase == null)
+                return "?";
+            var skill = itemBase.HarvestSkill;
+            var skillName = skill != null ? skill.Name : "-";
+            return $"{skillName} {itemBase.HarvestDifficulty}";
+        }
+
+        private static string FormatCooldown(RegionResourceVM template, ItemResourceVM live)
+        {
+            var templateCd = template != null ? FormatTime(template.NodeCooldown) : "?";
+            if (live == null)
+                return "шаблон " + templateCd;
+            if (live.Quantity > 0)
+                return "готов (шаблон " + templateCd + ")";
+            if (live.Remaining > TimeSpan.Zero)
+                return FormatTime(live.Remaining) + " / шаблон " + templateCd;
+            if (!string.IsNullOrEmpty(live.Cooldown))
+                return live.Cooldown + " / шаблон " + templateCd;
+            if (live.PlayerResource != null && live.PlayerResource.DueDateTime != default(DateTime))
+                return "до " + live.PlayerResource.DueDateTime.ToString("HH:mm:ss") + " / шаблон " + templateCd;
+            return "шаблон " + templateCd;
+        }
+
+        private static string FormatTime(TimeSpan span)
+        {
+            if (span <= TimeSpan.Zero)
+                return "0";
+            if (span.TotalHours >= 1)
+                return span.ToString(@"h\:mm\:ss");
+            return span.ToString(@"mm\:ss");
         }
     }
 

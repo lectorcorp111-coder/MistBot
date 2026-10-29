@@ -1,6 +1,7 @@
 using System.Reflection;
 using BepInEx.Logging;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace MistLegacyBot
 {
@@ -24,6 +25,7 @@ namespace MistLegacyBot
         private Rect _window = new Rect(40f, 60f, WindowWidth, ComputeWindowHeight());
         private MouseButtonManager _mouseManager;
         private bool _setIgnoreMouse;
+        private EventSystem _pausedEventSystem;
 
         public BotPanel(ManualLogSource log)
         {
@@ -32,7 +34,8 @@ namespace MistLegacyBot
             _logger.LogInfo("Панель бота готова.");
         }
 
-        public bool Visible { get; set; }
+        // Hidden until F8 so the login screen stays clickable.
+        public bool Visible { get; set; } = true;
 
         public void Toggle()
         {
@@ -44,6 +47,7 @@ namespace MistLegacyBot
         public void ReleaseInputBlock()
         {
             SetIgnoreMouse(false);
+            PauseEventSystem(false);
         }
 
         public void Draw()
@@ -60,6 +64,9 @@ namespace MistLegacyBot
         {
             var block = Visible && IsMouseOverWindow();
             SetIgnoreMouse(block);
+            PauseEventSystem(block);
+            if (block)
+                Input.ResetInputAxes();
         }
 
         private bool IsMouseOverWindow()
@@ -102,6 +109,27 @@ namespace MistLegacyBot
             {
                 IgnoreMouseField.SetValue(_mouseManager, false);
                 _setIgnoreMouse = false;
+            }
+        }
+
+        private void PauseEventSystem(bool pause)
+        {
+            if (pause)
+            {
+                var es = EventSystem.current != null ? EventSystem.current : _pausedEventSystem;
+                if (es == null)
+                    es = Object.FindObjectOfType<EventSystem>();
+                if (es == null)
+                    return;
+
+                _pausedEventSystem = es;
+                if (es.enabled)
+                    es.enabled = false;
+            }
+            else if (_pausedEventSystem != null)
+            {
+                _pausedEventSystem.enabled = true;
+                _pausedEventSystem = null;
             }
         }
 
