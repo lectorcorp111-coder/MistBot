@@ -22,6 +22,7 @@ namespace MistLegacyBot
 
         private readonly BotLogger _logger;
         private readonly InGameConsole _console;
+        private readonly ResourceStatsWindow _statsWindow = new ResourceStatsWindow();
         private Rect _window = new Rect(40f, 60f, WindowWidth, ComputeWindowHeight());
         private MouseButtonManager _mouseManager;
         private bool _setIgnoreMouse;
@@ -41,7 +42,10 @@ namespace MistLegacyBot
         {
             Visible = !Visible;
             if (!Visible)
+            {
+                _statsWindow.Visible = false;
                 ReleaseInputBlock();
+            }
         }
 
         public void ReleaseInputBlock()
@@ -55,31 +59,36 @@ namespace MistLegacyBot
             if (!Visible)
                 return;
 
+            ResourceCatalog.Instance.Refresh();
+
             _window.height = ComputeWindowHeight();
             _window = GUI.Window(WindowId, _window, DrawWindow, "MistLegacy Bot");
-            ConsumeMouseOverWindow();
+            _statsWindow.Draw();
+            ConsumeMouseOverOverlay();
         }
 
         public void UpdateInputBlock()
         {
-            var block = Visible && IsMouseOverWindow();
+            var block = Visible && IsMouseOverOverlay();
             SetIgnoreMouse(block);
             PauseEventSystem(block);
             if (block)
                 Input.ResetInputAxes();
         }
 
-        private bool IsMouseOverWindow()
+        private bool IsMouseOverOverlay()
         {
             var mouse = Input.mousePosition;
             var guiPoint = new Vector2(mouse.x, Screen.height - mouse.y);
-            return _window.Contains(guiPoint);
+            if (_window.Contains(guiPoint))
+                return true;
+            return _statsWindow.Visible && _statsWindow.WindowRect.Contains(guiPoint);
         }
 
-        private void ConsumeMouseOverWindow()
+        private void ConsumeMouseOverOverlay()
         {
             var ev = UnityEngine.Event.current;
-            if (ev == null || !IsMouseOverWindow())
+            if (ev == null || !IsMouseOverOverlay())
                 return;
 
             if (ev.type == EventType.Layout || ev.type == EventType.Repaint)
@@ -162,7 +171,7 @@ namespace MistLegacyBot
                 GatherService.TryGatherNearest(_logger);
 
             if (GUILayout.Button("Stats", GUILayout.Height(ButtonHeight)))
-                ResourceStatsService.DumpToLog(_logger);
+                _statsWindow.Toggle();
 
             GUILayout.Space(6f);
             GUILayout.Label("F8 — показать / скрыть");
@@ -177,19 +186,19 @@ namespace MistLegacyBot
 
         private static void DrawLiveStats()
         {
-            var snap = ResourceStatsService.Capture();
-            if (!snap.Ok)
+            var catalog = ResourceCatalog.Instance;
+            if (!catalog.Ok)
             {
-                GUILayout.Label(snap.Error, GUILayout.Height(StatsLineHeight));
+                GUILayout.Label(catalog.Error ?? "Нет данных.", GUILayout.Height(StatsLineHeight));
                 GUILayout.Label(string.Empty, GUILayout.Height(StatsLineHeight));
                 return;
             }
 
             GUILayout.Label(
-                $"Узлы {snap.Total}  вид {snap.Visible}  gather {snap.CanGather}  туман {snap.Unknown}",
+                $"Узлы {catalog.Nodes.Count}  вид {catalog.VisibleCount}  gather {catalog.CanGatherCount}  туман {catalog.Unknown}",
                 GUILayout.Height(StatsLineHeight));
             GUILayout.Label(
-                $"Сумка {snap.BagFree}/{snap.BagCapacity}  типов {snap.Types.Count}",
+                $"Сумка {catalog.BagFree}/{catalog.BagCapacity}  live {catalog.LiveCount}",
                 GUILayout.Height(StatsLineHeight));
         }
     }
