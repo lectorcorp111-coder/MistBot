@@ -8,7 +8,7 @@ namespace MistLegacyBot
     {
         public const string PluginGuid = "com.mistlegacy.bot";
         public const string PluginName = "MistLegacyBot";
-        public const string PluginVersion = "1.0.06";
+        public const string PluginVersion = "1.0.16";
 
         private BotPanel _panel;
 
@@ -22,6 +22,14 @@ namespace MistLegacyBot
         {
             if (Input.GetKeyDown(KeyCode.F8))
                 _panel.Toggle();
+
+            _panel.UpdateInputBlock();
+        }
+
+        private void OnDisable()
+        {
+            if (_panel != null)
+                _panel.ReleaseInputBlock();
         }
 
         private void OnGUI()
