@@ -18,6 +18,7 @@ namespace MistLegacyBot
         private readonly InGameConsole _console;
         private readonly OverlayInput _input = new OverlayInput();
         private readonly ResourceStatsWindow _statsWindow = new ResourceStatsWindow();
+        private readonly RegionListWindow _regionWindow = new RegionListWindow();
         private Rect _window = new Rect(40f, 60f, WindowWidth, ComputeWindowHeight());
 
         public BotPanel(ManualLogSource log)
@@ -35,6 +36,7 @@ namespace MistLegacyBot
             if (!Visible)
             {
                 _statsWindow.Visible = false;
+                _regionWindow.Visible = false;
                 _input.Release();
             }
         }
@@ -54,6 +56,7 @@ namespace MistLegacyBot
             _window.height = ComputeWindowHeight();
             _window = GUI.Window(WindowId, _window, DrawWindow, "MistLegacy Bot  " + Plugin.PluginVersion);
             _statsWindow.Draw();
+            _regionWindow.Draw();
             OverlayInput.ConsumeIfOver(IsMouseOverOverlay());
         }
 
@@ -67,7 +70,9 @@ namespace MistLegacyBot
             var guiPoint = OverlayInput.GuiMouse();
             if (OverlayInput.ContainsGuiPoint(_window, guiPoint))
                 return true;
-            return _statsWindow.Visible && OverlayInput.ContainsGuiPoint(_statsWindow.WindowRect, guiPoint);
+            if (_statsWindow.Visible && OverlayInput.ContainsGuiPoint(_statsWindow.WindowRect, guiPoint))
+                return true;
+            return _regionWindow.Visible && OverlayInput.ContainsGuiPoint(_regionWindow.WindowRect, guiPoint);
         }
 
         private static float ComputeWindowHeight()
@@ -100,6 +105,8 @@ namespace MistLegacyBot
                 GatherService.TryGatherNearest(_logger);
             if (GUILayout.Button("Stats", GUILayout.Height(ButtonHeight)))
                 _statsWindow.Toggle();
+            if (GUILayout.Button("Регионы", GUILayout.Height(ButtonHeight)))
+                _regionWindow.Toggle();
             GUILayout.EndHorizontal();
 
             GUILayout.Space(6f);
