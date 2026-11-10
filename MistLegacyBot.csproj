@@ -1,11 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);_temp/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

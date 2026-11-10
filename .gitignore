@@ -7,5 +7,7 @@ libs/
 
 # IDE
 .vs/
+.idea/
 *.user
 *.suo
+*.userosscache

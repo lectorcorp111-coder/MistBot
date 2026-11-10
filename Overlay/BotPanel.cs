@@ -1,7 +1,5 @@
-using System.Reflection;
 using BepInEx.Logging;
 using UnityEngine;
-using UnityEngine.EventSystems;
 
 namespace MistLegacyBot
 {
@@ -12,30 +10,23 @@ namespace MistLegacyBot
         private const float WindowTitleHeight = 24f;
         private const float WindowBottomSlack = 20f;
         private const float ButtonHeight = 28f;
-        private const int ButtonCount = 2;
+        private const int ButtonCount = 1;
         private const float StatsLineHeight = 18f;
         private const int StatsLineCount = 2;
 
-        private static readonly FieldInfo IgnoreMouseField = typeof(MouseButtonManager).GetField(
-            "ignoreMouse",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
         private readonly BotLogger _logger;
         private readonly InGameConsole _console;
+        private readonly OverlayInput _input = new OverlayInput();
         private readonly ResourceStatsWindow _statsWindow = new ResourceStatsWindow();
         private Rect _window = new Rect(40f, 60f, WindowWidth, ComputeWindowHeight());
-        private MouseButtonManager _mouseManager;
-        private bool _setIgnoreMouse;
-        private EventSystem _pausedEventSystem;
 
         public BotPanel(ManualLogSource log)
         {
             _console = new InGameConsole();
             _logger = new BotLogger(log, _console);
-            _logger.LogInfo("Панель бота готова.");
+            _logger.LogInfo("Панель бота готова. v" + Plugin.PluginVersion);
         }
 
-        // Hidden until F8 so the login screen stays clickable.
         public bool Visible { get; set; } = true;
 
         public void Toggle()
@@ -44,14 +35,13 @@ namespace MistLegacyBot
             if (!Visible)
             {
                 _statsWindow.Visible = false;
-                ReleaseInputBlock();
+                _input.Release();
             }
         }
 
         public void ReleaseInputBlock()
         {
-            SetIgnoreMouse(false);
-            PauseEventSystem(false);
+            _input.Release();
         }
 
         public void Draw()
@@ -62,84 +52,22 @@ namespace MistLegacyBot
             ResourceCatalog.Instance.Refresh();
 
             _window.height = ComputeWindowHeight();
-            _window = GUI.Window(WindowId, _window, DrawWindow, "MistLegacy Bot");
+            _window = GUI.Window(WindowId, _window, DrawWindow, "MistLegacy Bot  " + Plugin.PluginVersion);
             _statsWindow.Draw();
-            ConsumeMouseOverOverlay();
+            OverlayInput.ConsumeIfOver(IsMouseOverOverlay());
         }
 
         public void UpdateInputBlock()
         {
-            var block = Visible && IsMouseOverOverlay();
-            SetIgnoreMouse(block);
-            PauseEventSystem(block);
-            if (block)
-                Input.ResetInputAxes();
+            _input.Update(Visible && IsMouseOverOverlay());
         }
 
         private bool IsMouseOverOverlay()
         {
-            var mouse = Input.mousePosition;
-            var guiPoint = new Vector2(mouse.x, Screen.height - mouse.y);
-            if (_window.Contains(guiPoint))
+            var guiPoint = OverlayInput.GuiMouse();
+            if (OverlayInput.ContainsGuiPoint(_window, guiPoint))
                 return true;
-            return _statsWindow.Visible && _statsWindow.WindowRect.Contains(guiPoint);
-        }
-
-        private void ConsumeMouseOverOverlay()
-        {
-            var ev = UnityEngine.Event.current;
-            if (ev == null || !IsMouseOverOverlay())
-                return;
-
-            if (ev.type == EventType.Layout || ev.type == EventType.Repaint)
-                return;
-
-            if (ev.isMouse || ev.type == EventType.ScrollWheel)
-                ev.Use();
-        }
-
-        private void SetIgnoreMouse(bool ignore)
-        {
-            if (IgnoreMouseField == null)
-                return;
-
-            if (_mouseManager == null)
-                _mouseManager = Object.FindObjectOfType<MouseButtonManager>();
-
-            if (_mouseManager == null)
-                return;
-
-            if (ignore)
-            {
-                IgnoreMouseField.SetValue(_mouseManager, true);
-                _setIgnoreMouse = true;
-            }
-            else if (_setIgnoreMouse)
-            {
-                IgnoreMouseField.SetValue(_mouseManager, false);
-                _setIgnoreMouse = false;
-            }
-        }
-
-        private void PauseEventSystem(bool pause)
-        {
-            if (pause)
-            {
-                var es = EventSystem.current != null ? EventSystem.current : _pausedEventSystem;
-                if (es == null)
-                    es = Object.FindObjectOfType<EventSystem>();
-                if (es == null)
-                    return;
-
-                _pausedEventSystem = es;
-                if (es.enabled)
-                    es.enabled = false;
-            }
-            else if (_pausedEventSystem != null)
-            {
-                _pausedEventSystem.enabled = true;
-                _pausedEventSystem = null;
-            }
+            return _statsWindow.Visible && OverlayInput.ContainsGuiPoint(_statsWindow.WindowRect, guiPoint);
         }
 
         private static float ComputeWindowHeight()
@@ -167,11 +95,12 @@ namespace MistLegacyBot
         {
             GUILayout.Space(4f);
 
+            GUILayout.BeginHorizontal();
             if (GUILayout.Button("Gather", GUILayout.Height(ButtonHeight)))
                 GatherService.TryGatherNearest(_logger);
-
             if (GUILayout.Button("Stats", GUILayout.Height(ButtonHeight)))
                 _statsWindow.Toggle();
+            GUILayout.EndHorizontal();
 
             GUILayout.Space(6f);
             GUILayout.Label("F8 — показать / скрыть");
