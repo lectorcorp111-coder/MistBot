@@ -1,6 +1,7 @@
 bin/
 obj/
 _temp/
+data/
 
 # Game / Unity reference assemblies (copy locally from Mist Legacy_Data/Managed)
 libs/

@@ -26,6 +26,7 @@ namespace MistLegacyBot
             _console = new InGameConsole();
             _logger = new BotLogger(log, _console);
             _logger.LogInfo("Панель бота готова. v" + Plugin.PluginVersion);
+            MapIntelTracker.Start(_logger);
         }
 
         public bool Visible { get; set; } = true;

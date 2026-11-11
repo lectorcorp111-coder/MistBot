@@ -89,6 +89,7 @@ namespace MistLegacyBot
         {
             GUILayout.Space(6f);
             GUILayout.Label("Движение", _headerStyle);
+            GUILayout.Label("Intel  " + MapIntelStore.Summary(), _statusStyle);
 
             var dest = group.Destination;
             var destRegion = dest != null ? dest.Region : null;
