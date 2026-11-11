@@ -46,6 +46,37 @@ namespace MistLegacyBot
         public string region { get; set; }
     }
 
+    internal sealed class MapSiteHopRecord
+    {
+        public string action { get; set; }
+        public string taskId { get; set; }
+        public MapSiteEnd from { get; set; }
+        public MapSiteEnd to { get; set; }
+    }
+
+    internal sealed class MapPoiRecord
+    {
+        public string siteId { get; set; }
+        public string name { get; set; }
+        public int x { get; set; }
+        public int y { get; set; }
+        public string regionId { get; set; }
+        public string region { get; set; }
+        public bool portal { get; set; }
+        public bool camp { get; set; }
+        public bool vortex { get; set; }
+    }
+
+    internal sealed class MapSiteEnd
+    {
+        public string siteId { get; set; }
+        public string name { get; set; }
+        public int x { get; set; }
+        public int y { get; set; }
+        public string regionId { get; set; }
+        public string region { get; set; }
+    }
+
     internal sealed class MapIntelDoc
     {
         public int version { get; set; }
@@ -54,6 +85,8 @@ namespace MistLegacyBot
         public List<MapCrossingRecord> crossings { get; set; }
         public List<MapGatherRecord> gathers { get; set; }
         public List<MapPortalRecord> portals { get; set; }
+        public List<MapSiteHopRecord> hops { get; set; }
+        public List<MapPoiRecord> pois { get; set; }
 
         public static MapIntelDoc Empty()
         {
@@ -64,7 +97,9 @@ namespace MistLegacyBot
                 paths = new List<MapPathRecord>(),
                 crossings = new List<MapCrossingRecord>(),
                 gathers = new List<MapGatherRecord>(),
-                portals = new List<MapPortalRecord>()
+                portals = new List<MapPortalRecord>(),
+                hops = new List<MapSiteHopRecord>(),
+                pois = new List<MapPoiRecord>()
             };
         }
     }
@@ -99,6 +134,8 @@ namespace MistLegacyBot
             if (Doc.crossings == null) Doc.crossings = new List<MapCrossingRecord>();
             if (Doc.gathers == null) Doc.gathers = new List<MapGatherRecord>();
             if (Doc.portals == null) Doc.portals = new List<MapPortalRecord>();
+            if (Doc.hops == null) Doc.hops = new List<MapSiteHopRecord>();
+            if (Doc.pois == null) Doc.pois = new List<MapPoiRecord>();
         }
 
         public static bool AddPath(MapTile from, MapTile to)
@@ -175,18 +212,85 @@ namespace MistLegacyBot
             return true;
         }
 
+        public static bool AddHop(MapSiteHopRecord hop)
+        {
+            Load();
+            if (hop == null || hop.from == null || hop.to == null)
+                return false;
+            if (hop.from.x == hop.to.x && hop.from.y == hop.to.y)
+                return false;
+            foreach (var h in Doc.hops)
+            {
+                if (SameEnd(h.from, hop.from) && SameEnd(h.to, hop.to) && h.action == hop.action)
+                    return false;
+            }
+
+            Doc.hops.Add(hop);
+            Save();
+            return true;
+        }
+
+        public static bool AddPoi(MapPoiRecord poi)
+        {
+            Load();
+            if (poi == null)
+                return false;
+            foreach (var p in Doc.pois)
+            {
+                if (!string.IsNullOrEmpty(poi.siteId) && p.siteId == poi.siteId)
+                    return false;
+                if (p.x == poi.x && p.y == poi.y && p.name == poi.name)
+                    return false;
+            }
+
+            Doc.pois.Add(poi);
+            Save();
+            return true;
+        }
+
+        public static bool HasHopCovering(int fromX, int fromY, int toX, int toY)
+        {
+            Load();
+            const int radius = 12;
+            foreach (var h in Doc.hops)
+            {
+                if (h == null || h.from == null || h.to == null)
+                    continue;
+                if (Near(h.from, fromX, fromY, radius) && Near(h.to, toX, toY, radius))
+                    return true;
+                if (Near(h.from, toX, toY, radius) && Near(h.to, fromX, fromY, radius))
+                    return true;
+            }
+
+            return false;
+        }
+
         public static string Summary()
         {
             Load();
             return "путей " + Doc.paths.Count
                    + "  стыков " + Doc.crossings.Count
                    + "  сбора " + Doc.gathers.Count
-                   + "  порталов " + Doc.portals.Count;
+                   + "  порталов " + Doc.portals.Count
+                   + "  связей " + Doc.hops.Count
+                   + "  точек " + Doc.pois.Count;
         }
 
         private static bool SameTile(MapTile a, MapTile b)
         {
             return a != null && b != null && a.x == b.x && a.y == b.y;
+        }
+
+        private static bool SameEnd(MapSiteEnd a, MapSiteEnd b)
+        {
+            return a != null && b != null && a.x == b.x && a.y == b.y;
+        }
+
+        private static bool Near(MapSiteEnd end, int x, int y, int radius)
+        {
+            var dx = end.x - x;
+            var dy = end.y - y;
+            return dx * dx + dy * dy <= radius * radius;
         }
 
         private static MapIntelDoc Read(string path)

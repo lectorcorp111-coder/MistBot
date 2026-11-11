@@ -1,3 +1,4 @@
+using System;
 using Virtys.Common.Shared.Algorithms;
 using Virtys.Nebula.Client.ViewModel.Domain;
 
@@ -6,6 +7,7 @@ namespace MistLegacyBot
     internal static class MapIntelTracker
     {
         private const double ArriveDist = 12.0;
+        private const double HopJumpDist = 6.0;
 
         private static bool _ready;
         private static int _prevX;
@@ -19,6 +21,11 @@ namespace MistLegacyBot
         private static int _tripDestY;
         private static bool _tripHasDest;
         private static bool _wasGathering;
+        private static MapSiteEnd _pendingFrom;
+        private static string _pendingAction;
+        private static string _pendingTaskId;
+        private static int _pendingToX;
+        private static int _pendingToY;
 
         private static BotLogger _log;
 
@@ -46,14 +53,6 @@ namespace MistLegacyBot
             var hereId = here != null ? here.ID.ToString("D") : null;
             var hereName = here != null ? here.Name : null;
 
-            if (_ready && !string.IsNullOrEmpty(_prevRegionId) && hereId != null && hereId != _prevRegionId)
-            {
-                var from = Tile(_prevX, _prevY, _prevRegionId, _prevRegionName);
-                var to = Tile(group.X, group.Y, hereId, hereName);
-                if (MapIntelStore.AddCrossing(from, to) && _log != null)
-                    _log.LogInfo("Intel: стык «" + from.region + "» → «" + to.region + "».");
-            }
-
             var moving = group.IsTraveling || group.TravelSearching;
             if (moving)
             {
@@ -78,8 +77,28 @@ namespace MistLegacyBot
 
             _wasGathering = group.Gathering;
 
+            WatchHopTask(group, hereId, hereName);
+            var jumped = _ready && Distance.Measure(_prevX, _prevY, group.X, group.Y) >= HopJumpDist;
+            if (jumped)
+                RecordJump(group, hereId, hereName);
+
+            if (_ready && !string.IsNullOrEmpty(_prevRegionId) && hereId != null && hereId != _prevRegionId)
+            {
+                if (!MapIntelStore.HasHopCovering(_prevX, _prevY, group.X, group.Y))
+                {
+                    var from = Tile(_prevX, _prevY, _prevRegionId, _prevRegionName);
+                    var to = Tile(group.X, group.Y, hereId, hereName);
+                    if (MapIntelStore.AddCrossing(from, to) && _log != null)
+                        _log.LogInfo("Intel: стык «" + from.region + "» → «" + to.region + "».");
+                }
+            }
+
             if (!moving)
+            {
                 MaybePortal(group, hereId, hereName);
+                ScanSiteHops(group, hereId, hereName);
+                RecordPoi(group, hereId, hereName);
+            }
 
             _prevX = group.X;
             _prevY = group.Y;
@@ -117,28 +136,13 @@ namespace MistLegacyBot
             if (_tripStart == null)
                 return;
 
-            var arrived = _tripHasDest
-                && Distance.Measure(_tripDestX, _tripDestY, group.X, group.Y) <= ArriveDist;
-            if (!arrived && group.Gathering)
-                arrived = true;
-            if (!arrived)
-            {
-                if (_log != null && _tripHasDest)
-                {
-                    _log.LogInfo(
-                        "Intel: путь не засчитан, dist="
-                        + Distance.Measure(_tripDestX, _tripDestY, group.X, group.Y).ToString("F1")
-                        + " до (" + _tripDestX + "," + _tripDestY + ").");
-                }
-                return;
-            }
-
             var to = Tile(group.X, group.Y, hereId, hereName);
             if (MapIntelStore.AddPath(_tripStart, to) && _log != null)
                 _log.LogInfo("Intel: путь (" + _tripStart.x + "," + _tripStart.y + ") → (" + to.x + "," + to.y + ").");
 
             RecordGather(group, hereId, hereName);
             MaybePortal(group, hereId, hereName);
+            RecordPoi(group, hereId, hereName);
         }
 
         private static void RecordGather(GroupVM group, string hereId, string hereName)
@@ -205,6 +209,58 @@ namespace MistLegacyBot
             };
             if (MapIntelStore.AddPortal(portal) && _log != null)
                 _log.LogInfo("Intel: портал «" + portal.name + "».");
+        }
+
+        private static void RecordPoi(GroupVM group, string hereId, string hereName)
+        {
+            var site = group.Destination != null ? group.Destination.Site : null;
+            if (site == null || site.Unknown || string.IsNullOrEmpty(site.Name))
+                site = NearestNamedSite(group.X, group.Y);
+            if (site == null)
+                return;
+
+            var range = site.Range > 0 ? site.Range : 2;
+            if (Distance.Measure(site.X, site.Y, group.X, group.Y) > range + 2)
+                return;
+
+            var region = site.Region;
+            var poi = new MapPoiRecord
+            {
+                siteId = site.ID.ToString("D"),
+                name = site.Name,
+                x = site.X,
+                y = site.Y,
+                regionId = region != null ? region.ID.ToString("D") : hereId,
+                region = region != null ? region.Name : hereName,
+                portal = site.Portal,
+                camp = site.IsCamp,
+                vortex = site.Vortex
+            };
+            if (MapIntelStore.AddPoi(poi) && _log != null)
+                _log.LogInfo("Intel: точка «" + poi.name + "» (" + poi.x + "," + poi.y + ").");
+        }
+
+        private static SiteVM NearestNamedSite(int x, int y)
+        {
+            var world = WorldVM.Current;
+            if (world == null || world.Sites == null)
+                return null;
+            SiteVM best = null;
+            var bestDist = ArriveDist;
+            foreach (var site in world.Sites)
+            {
+                if (site == null || site.Unknown || string.IsNullOrEmpty(site.Name))
+                    continue;
+                var d = Distance.Measure(site.X, site.Y, x, y);
+                var range = site.Range > 0 ? site.Range : 2;
+                if (d <= range + 2 && d < bestDist)
+                {
+                    bestDist = d;
+                    best = site;
+                }
+            }
+
+            return best;
         }
 
         private static SiteVM FindPortalSite(GroupVM group)
@@ -277,6 +333,189 @@ namespace MistLegacyBot
             }
 
             return false;
+        }
+
+        private static void WatchHopTask(GroupVM group, string hereId, string hereName)
+        {
+            var task = HopTaskOf(group);
+            if (task == null)
+                return;
+
+            int toX;
+            int toY;
+            if (!TryTeleportCoords(task, out toX, out toY))
+                return;
+
+            var fromSite = NearestSite(group.X, group.Y, false);
+            _pendingFrom = SiteEnd(fromSite, group.X, group.Y, hereId, hereName);
+            _pendingAction = string.IsNullOrEmpty(task.Name) ? "переход" : task.Name;
+            _pendingTaskId = task.ID.ToString("D");
+            _pendingToX = toX;
+            _pendingToY = toY;
+        }
+
+        private static void RecordJump(GroupVM group, string hereId, string hereName)
+        {
+            var fromSite = NearestSite(_prevX, _prevY, false);
+            var toSite = NearestSite(group.X, group.Y, false);
+            var from = _pendingFrom ?? SiteEnd(fromSite, _prevX, _prevY, _prevRegionId, _prevRegionName);
+            var to = SiteEnd(toSite, group.X, group.Y, hereId, hereName);
+            var action = _pendingAction;
+            var taskId = _pendingTaskId;
+            if (string.IsNullOrEmpty(action))
+            {
+                var task = HopTaskOf(group);
+                if (task != null)
+                {
+                    action = task.Name;
+                    taskId = task.ID.ToString("D");
+                }
+            }
+
+            if (fromSite != null && fromSite.Portal)
+                return;
+            if (toSite != null && toSite.Portal)
+                return;
+
+            TryAddHop(from, to, action, taskId);
+            RecordPoi(group, hereId, hereName);
+            _pendingFrom = null;
+            _pendingAction = null;
+            _pendingTaskId = null;
+        }
+
+        private static void ScanSiteHops(GroupVM group, string hereId, string hereName)
+        {
+            var world = WorldVM.Current;
+            if (world == null || world.Sites == null)
+                return;
+
+            foreach (var site in world.Sites)
+            {
+                if (site == null || site.Portal || site.Unknown || site.Tasks == null)
+                    continue;
+                var range = site.Range > 0 ? site.Range : 2;
+                if (Distance.Measure(site.X, site.Y, group.X, group.Y) > range + 2)
+                    continue;
+
+                foreach (var task in site.Tasks)
+                {
+                    int toX;
+                    int toY;
+                    if (!IsSiteHop(task) || !TryTeleportCoords(task, out toX, out toY))
+                        continue;
+                    var destSite = NearestSite(toX, toY, false);
+                    var from = SiteEnd(site, site.X, site.Y, hereId, hereName);
+                    var region = site.Region;
+                    if (region != null)
+                    {
+                        from.regionId = region.ID.ToString("D");
+                        from.region = region.Name;
+                    }
+
+                    var to = SiteEnd(destSite, toX, toY, hereId, hereName);
+                    TryAddHop(from, to, string.IsNullOrEmpty(task.Name) ? "переход" : task.Name, task.ID.ToString("D"));
+                }
+            }
+        }
+
+        private static void TryAddHop(MapSiteEnd from, MapSiteEnd to, string action, string taskId)
+        {
+            var hop = new MapSiteHopRecord
+            {
+                action = action,
+                taskId = taskId,
+                from = from,
+                to = to
+            };
+            if (MapIntelStore.AddHop(hop) && _log != null)
+            {
+                var name = from != null && !string.IsNullOrEmpty(from.name) ? from.name : "?";
+                _log.LogInfo("Intel: связь «" + (action ?? "переход") + "» «" + name + "» ("
+                             + from.x + "," + from.y + ") → (" + to.x + "," + to.y + ").");
+            }
+        }
+
+        private static TaskVM HopTaskOf(GroupVM group)
+        {
+            if (group == null)
+                return null;
+            var current = group.CurrentTask;
+            if (current != null && current.GroupTask != null && IsSiteHop(current.GroupTask.Task))
+                return current.GroupTask.Task;
+            if (IsSiteHop(group.TransitioningAction))
+                return group.TransitioningAction;
+            return null;
+        }
+
+        private static bool IsSiteHop(TaskVM task)
+        {
+            return task != null && task.IsTeleport && !task.HomePortal;
+        }
+
+        private static bool TryTeleportCoords(TaskVM task, out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+            if (task == null)
+                return false;
+            var tx = task.TeleportX;
+            var ty = task.TeleportY;
+            if (!tx.HasValue || !ty.HasValue)
+                return false;
+            x = tx.Value;
+            y = ty.Value;
+            return true;
+        }
+
+        private static SiteVM NearestSite(int x, int y, bool portals)
+        {
+            var world = WorldVM.Current;
+            if (world == null || world.Sites == null)
+                return null;
+            SiteVM best = null;
+            var bestDist = ArriveDist;
+            foreach (var site in world.Sites)
+            {
+                if (site == null || site.Unknown)
+                    continue;
+                if (site.Portal != portals)
+                    continue;
+                var d = Distance.Measure(site.X, site.Y, x, y);
+                var range = site.Range > 0 ? site.Range : 2;
+                if (d <= range + 2 && d < bestDist)
+                {
+                    bestDist = d;
+                    best = site;
+                }
+            }
+
+            return best;
+        }
+
+        private static MapSiteEnd SiteEnd(SiteVM site, int x, int y, string regionId, string region)
+        {
+            if (site != null)
+            {
+                x = site.X;
+                y = site.Y;
+                var r = site.Region;
+                if (r != null)
+                {
+                    regionId = r.ID.ToString("D");
+                    region = r.Name;
+                }
+            }
+
+            return new MapSiteEnd
+            {
+                siteId = site != null ? site.ID.ToString("D") : null,
+                name = site != null ? site.Name : null,
+                x = x,
+                y = y,
+                regionId = regionId,
+                region = region
+            };
         }
 
         private static MapTile Tile(int x, int y, string regionId, string region)

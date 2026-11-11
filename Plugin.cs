@@ -8,7 +8,7 @@ namespace MistLegacyBot
     {
         public const string PluginGuid = "com.mistlegacy.bot";
         public const string PluginName = "MistLegacyBot";
-        public const string PluginVersion = "1.0.21";
+        public const string PluginVersion = "1.0.25";
 
         private BotPanel _panel;
 
